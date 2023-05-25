@@ -2,6 +2,8 @@ import os
 import sys
 
 
+
+
 def download(url):
     os.system(f'gallery-dl -o "lang=en" {url}')
 

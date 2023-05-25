@@ -1,2 +1,5 @@
 gallery-dl
-translated
+data/translated
+.idea
+_translated
+venv

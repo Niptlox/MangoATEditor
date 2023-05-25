@@ -2,42 +2,28 @@ import torch
 import gc
 import sys
 from time import sleep
-from manga_image_translator.manga_translator.args import parser
+
+from libs.config.config import TranslatorCnf
+from libs.manga_image_translator.manga_translator.args import parser
 import logging
 import os.path
 import glob
 import asyncio
-from manga_image_translator.manga_translator import MangaTranslator, set_main_logger, translators
-from manga_image_translator.manga_translator.utils import get_logger, set_log_level, init_logging, init_new_logging
+from libs.manga_image_translator.manga_translator import MangaTranslator, set_main_logger, translators
+from libs.manga_image_translator.manga_translator.utils import get_logger, set_log_level, init_logging, init_new_logging
 import shutil
 
 torch.cuda.empty_cache()
 gc.collect()
+CWD = BASE_PATH = os.getcwd()
 
-BASE_PATH = os.getcwd()
 # выключить комп после завершения
 SHUTDOWN = False
-# Удалить картинки не находящиеся в оргинальной папке
-DEL_NOT_IN_ORIGINAL = True
-IGNOR_DEL = {"000.png"}
-# зазиповать каждую папку
-TO_ZIP = False
-# добавить в начала собственую картнку под 000.png
-HEADER = "src/header.png"
 # выводить в отдельные папки этапы создания файла
-DEBUG = False
+TranslatorCnf.debug = True
 # создавать файлы для редактуры в фотошопе
-CREATE_VECTOR_IMAGE = True
-TRANSLATE_VECTOR_IMAGE = True
-BASE64_VECTOR_IMAGE = True
-SAVE_CLEANED_IMAGE = True
-FONT_PATH = os.path.join(BASE_PATH, "fonts/Anime Ace.ttf")
-TRANSLATED_PATH = os.path.join(BASE_PATH, "translated")
-# переводить на язык
-LANG = "RUS"
-# rapid,google,youdao,baidu,deepl,papago,gpt3,gpt3.5,none,original,offline,nllb,nllb_big,sugoi,jparacrawl,jparacrawl_big,m2m100,m2m100_big
-TRANSLATOR = "google"
-# TRANSLATOR = "papago"
+TranslatorCnf.create_vector_image = True
+
 # задержка перед запуском (сек)
 sleep_sec = 0
 
@@ -45,16 +31,17 @@ _rootLogPassImgs = logging.getLogger("pass_imgs")
 init_new_logging(_rootLogPassImgs, level=logging.DEBUG, fileName="passImgs")
 
 # from deep_translator import GoogleTranslator
-if __name__ == '__main__' and 0:
-    translate = translators.google.GoogleTranslator()
-    loop = asyncio.new_event_loop()
-    text = "\"so you're hugging again?\\nThis is seriously your final chance, senpai.\\nTell me that \\\"you like me please.\\nThat's the only thing stopping you Prou having your cute kouhai as your girlfriend.\"".replace(
-        "\\n", "\n")
-    res = translate.translate("auto", "RUS", [text])
-    res = loop.run_until_complete(res)
-    print(res)
-    loop.close()
-    exit()
+# if __name__ == '__main__':
+#     translate = translators.google.GoogleTranslator()
+#     loop = asyncio.new_event_loop()
+#     text = "\"so you're hugging again?\\nThis is seriously your final chance, senpai.\\nTell me that \\\"you like me please.\\nThat's the only thing stopping you Prou having your cute kouhai as your girlfriend.\"".replace(
+#         "\\n", "\n")
+#     res = translate.translate("auto", "RUS", [text])
+#     res = loop.run_until_complete(res)
+#     sleep(20)
+#     print(res)
+#     loop.close()
+#     exit()
 
 init_logging()
 set_log_level(level=logging.DEBUG)
@@ -77,20 +64,20 @@ def get_images(path):
 # -i test_manga.jpg --dest t_test_manga.jpg --inpainter default  -v  -l RUS --inpainting-size 512 --use-cuda --translator gpt3.5
 
 def get_default_args():
-    args_dict = {"target_lang": LANG, "translator": TRANSLATOR, "verbose": True, "inpainter": "default",
-                 "inpainting_size": 512, "use_cuda": True, "font_path": FONT_PATH,
+    args_dict = {"target_lang": TranslatorCnf.translate_language,
+                 "translator": TranslatorCnf.translator_type, "verbose": True, "inpainter": "default",
+                 "inpainting_size": 512, "use_cuda": True, "font_path": TranslatorCnf.translate_font,
                  "bold_border": 5, "del_word_wrap": True,
-                 "create_vector_file": CREATE_VECTOR_IMAGE, "translate_vector_file": TRANSLATE_VECTOR_IMAGE,
-                 "base64_vector_file": BASE64_VECTOR_IMAGE, "cleaned_image_path": None}
+                 "create_vector_file": TranslatorCnf.create_vector_image, "translate_vector_file": TranslatorCnf.translate_vector_image,
+                 "base64_vector_file": TranslatorCnf.base64_vector_image, "cleaned_image_path": None,
+                 "cash_folder": os.path.join(BASE_PATH, "logs")}
     return args_dict
 
 
-async def translate_chapters(path_chapters, result_language=LANG, translate_with=TRANSLATOR, group="", use_cuda=True,
-                             one_image=False):
+async def translate_chapters(path_chapters, result_language=TranslatorCnf.translate_language, group="", use_cuda=True, one_image=False):
     pass_imgs = 0
     args_dict = get_default_args()
     args_dict["target_lang"] = result_language
-    args_dict["translator"] = translate_with
 
     if type(path_chapters) is str:
         path_chapters = [path_chapters]
@@ -103,17 +90,18 @@ async def translate_chapters(path_chapters, result_language=LANG, translate_with
     for path_chapter in path_chapters:
         path_chapter = path_chapter.replace("\\", "/")
         chapter = path_chapter.rsplit("/", 1)[1]
-        res_path = os.path.join(TRANSLATED_PATH, group, chapter)
+        res_path = os.path.join(TranslatorCnf.translated_path, group, chapter)
         if not os.path.exists(res_path):
             os.makedirs(res_path)
-        if HEADER:
-            shutil.copy(HEADER, os.path.join(res_path, "000.png"))
+        if TranslatorCnf.header_image:
+            shutil.copy(TranslatorCnf.header_image, os.path.join(res_path, "000.png"))
         print("path_chapter", path_chapter, res_path)
         images_path = get_images(path_chapter)
         i = 0
-        if DEL_NOT_IN_ORIGINAL:
+        if TranslatorCnf.del_not_in_original:
             imgs_in_res = set(get_filenames(get_images(res_path)))
-            outsection_imgs = (set(get_filenames(images_path)) ^ imgs_in_res ^ IGNOR_DEL) & imgs_in_res
+            ignore_del = {TranslatorCnf.ignore_del}
+            outsection_imgs = (set(get_filenames(images_path)) ^ imgs_in_res ^ ignore_del) & imgs_in_res
             print("outsection_imgs for del", outsection_imgs)
             for img_name in outsection_imgs:
                 os.remove(os.path.join(res_path, img_name))
@@ -126,11 +114,11 @@ async def translate_chapters(path_chapters, result_language=LANG, translate_with
 
             print("chapter progress:", i / len(images_path) * 100, f"%  ({i}/{len(images_path)})")
             # args_dict["use_cuda"] = True
-            await _translate_image(args_dict, translator_cuda, image_path, res_path, try_exception=DEBUG)
+            await _translate_image(args_dict, translator_cuda, image_path, res_path, try_exception=TranslatorCnf.debug)
             if one_image:
                 return
-        if TO_ZIP:
-            zip_file = os.path.join(os.path.join(BASE_PATH, "translated", group), "zip", chapter)
+        if TranslatorCnf.to_zip:
+            zip_file = os.path.join(os.path.join(BASE_PATH, "data/translated", group), "zip", chapter)
             print("zip_file", zip_file)
             if not os.path.exists(zip_file + ".zip"):
                 print("ZIP", zip_file, res_path)
@@ -146,12 +134,12 @@ async def _translate_image(args_dict, translator_cuda, image_path, res_path, try
     print("image_path", image_path, res_path_img)
     args_dict["original_image_path"] = image_path
     args_dict["result_image_path"] = res_path_img
-    if DEBUG:
+    if TranslatorCnf.debug:
         args_dict["cash_folder"] = res_path_img + "_"
         if not os.path.exists(args_dict["cash_folder"]):
             os.makedirs(args_dict["cash_folder"])
         args_dict["save_text_file"] = args_dict["cash_folder"]
-    if SAVE_CLEANED_IMAGE:
+    if TranslatorCnf.save_cleaned_image:
         clean_path = os.path.join(res_path, "cleaned")
         if not os.path.exists(clean_path):
             os.makedirs(clean_path)
@@ -178,11 +166,11 @@ async def _translate_image(args_dict, translator_cuda, image_path, res_path, try
 
 async def translate_image(image_path, res_path=None, use_cuda=True):
     if res_path is None:
-        res_path = os.path.join(TRANSLATED_PATH, "images")
+        res_path = os.path.join(TranslatorCnf.translated_path, "images")
     args_dict = get_default_args()
     args_dict["use_cuda"] = use_cuda
     translator_cuda = MangaTranslator(args_dict)
-    await _translate_image(args_dict, translator_cuda, image_path, res_path, try_exception=DEBUG)
+    await _translate_image(args_dict, translator_cuda, image_path, res_path, try_exception=TranslatorCnf.debug)
 
 
 async def load_dir(path):
@@ -200,7 +188,7 @@ async def load_dir(path):
             _rootLogPassImgs.warning(f"Pass images: {c} : {path}")
 
 
-if __name__ == '__main__':
+def main():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     args = parser.parse_args()
@@ -217,3 +205,7 @@ if __name__ == '__main__':
         #     translate_chapters([r"gallery-dl\mango images\onepunch_man_172"]))
         if SHUTDOWN:
             os.system('shutdown -s')
+
+
+if __name__ == '__main__':
+    main()
